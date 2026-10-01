@@ -115,6 +115,10 @@ Retries and read-only checks reuse the verified receipt, including transcripts
 discovered outside `sessions.json`. Doctor reports one pending-plugin warning
 for these retained inputs; they do not fail the completed core migration or
 require `doctor --session-sqlite recover`. Warning-only results exit successfully.
+A completed receipt is never replayed, so a primary transcript it did not capture,
+such as one copied into `sessions/` after that import, is not imported. Doctor names
+each one in a `retained_import_transcript_skipped` warning; archival preserves the
+file as unreferenced history instead of deleting it.
 An active legacy JSONL outside that receipt is an advisory awaiting verification.
 `doctor --fix` and `--session-sqlite recover` verify that its event identities and
 contents are present in the owning agent's SQLite transcript. A prefix or subset
