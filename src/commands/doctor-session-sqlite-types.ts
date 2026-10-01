@@ -34,6 +34,8 @@ export function isRetainedSourceIssue(issue: DoctorSessionSqliteIssue): boolean 
     "transcript_malformed",
     "transcript_missing",
     "retained_plugin_source_index_rebuilt",
+    // Diagnostic only: naming skipped history must not change receipt settlement.
+    "retained_import_transcript_skipped",
   ].includes(issue.code);
 }
 

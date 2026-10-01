@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import { isPrimarySessionTranscriptFileName } from "../config/sessions/artifacts.js";
 import {
   isLegacySessionRecordOwnedByTarget,
   shouldFilterLegacySessionRecordsByTarget,
@@ -38,6 +39,7 @@ import {
   type SessionSqliteMigrationTargetInput,
 } from "../infra/session-sqlite-migration-manifest.js";
 import {
+  readLegacyPrimaryTranscriptIdentity,
   readTranscriptFingerprint,
   resolveTargetSqlitePath,
 } from "../infra/session-sqlite-migration-readers.js";
@@ -46,7 +48,10 @@ import {
   hasSqliteFileFamily,
 } from "../state/agent-deletion-discovery.js";
 import { planSessionJsonlArchiveMove } from "./doctor-session-sqlite-archive.js";
-import { countLegacyTranscript } from "./doctor-session-sqlite-diagnostics.js";
+import {
+  countLegacyTranscript,
+  readActiveSqliteTranscriptFiles,
+} from "./doctor-session-sqlite-diagnostics.js";
 import {
   readLegacySessionRecords,
   type LegacySessionRecord,
@@ -340,11 +345,13 @@ export function countRetainedSessionSources(
   retained: NonNullable<ReturnType<typeof prepareRetainedSessionImport>>,
   records: readonly LegacySessionRecord[],
   report: DoctorSessionSqliteTargetReport,
+  referencedPaths?: ReadonlySet<string>,
 ): void {
   const { retainedImport, retainedIndexPath, sourceVerification, sourceConflicts } = retained;
   if (!retainedImport) {
     return;
   }
+  reportTranscriptsOutsideRetainedImport(retained, report, referencedPaths);
   if (!retainedIndexPath) {
     sourceVerification.verification.clear();
     if (!isDeepStrictEqual(readDeferredPluginSessionImport(sourceVerification), retainedImport)) {
@@ -388,5 +395,65 @@ export function countRetainedSessionSources(
         events: 0,
       };
     }
+  }
+}
+
+/**
+ * A completed receipt intentionally prevents replay, so primary transcripts it
+ * never verified are not imported. Name each one instead of reporting a clean
+ * zero-import run; archival still preserves the file as unreferenced history.
+ */
+function reportTranscriptsOutsideRetainedImport(
+  {
+    retainedImport,
+    sourceVerification,
+  }: NonNullable<ReturnType<typeof prepareRetainedSessionImport>>,
+  report: DoctorSessionSqliteTargetReport,
+  referencedPaths: ReadonlySet<string> | undefined,
+): void {
+  if (!retainedImport) {
+    return;
+  }
+  const excluded = new Set(
+    retainedImport.sources.map((source) => canonicalMigrationFilePath(source.path)),
+  );
+  for (const referenced of referencedPaths ?? []) {
+    excluded.add(referenced);
+  }
+  try {
+    // Originals of sessions already in SQLite are settled by active transcript checks.
+    const target = { ...sourceVerification.target, sqlitePath: sourceVerification.sqlitePath };
+    for (const source of readActiveSqliteTranscriptFiles(target)) {
+      excluded.add(canonicalMigrationFilePath(source.transcriptPath));
+    }
+  } catch {
+    // The active transcript scan reports its own failure; never guess without it.
+    return;
+  }
+  for (const file of report.unreferencedJsonlFiles) {
+    if (
+      !isPrimarySessionTranscriptFileName(path.basename(file)) ||
+      !fs.existsSync(file) ||
+      excluded.has(canonicalMigrationFilePath(file)) ||
+      !hasPrimaryTranscriptHeader(file)
+    ) {
+      continue;
+    }
+    report.issues.push({
+      code: "retained_import_transcript_skipped",
+      message:
+        "Transcript was not imported because this store already completed a deferred plugin " +
+        "session import that does not include it. It is preserved as unreferenced history, " +
+        `not deleted: ${file}`,
+    });
+  }
+}
+
+function hasPrimaryTranscriptHeader(file: string): boolean {
+  try {
+    return readLegacyPrimaryTranscriptIdentity(file, file, undefined, true) !== undefined;
+  } catch {
+    // A mismatched or unreadable header is not a skipped primary session transcript.
+    return false;
   }
 }

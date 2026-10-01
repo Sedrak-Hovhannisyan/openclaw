@@ -846,7 +846,7 @@ async function inspectOrMigrateTarget(params: {
     return report;
   }
   if (retainedImport) {
-    countRetainedSessionSources(retained, records, report);
+    countRetainedSessionSources(retained, records, report, params.referencedPaths);
   } else if (params.mode === "import") {
     await importLegacySessionRecords(params, records, report, params.activeRun);
   } else if (params.mode === "dry-run") {
