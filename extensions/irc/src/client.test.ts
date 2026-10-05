@@ -158,6 +158,14 @@ describe("irc client nickserv", () => {
 
     expect(result.lines).toContain("PRIVMSG NickServ :IDENTIFY secret JOIN #bad");
   });
+
+  it("sends backslashes in the NickServ password unchanged", async () => {
+    const result = await connectAndCollectRegistration({
+      nickserv: { password: String.raw`pa\tss\new\x41` },
+    });
+
+    expect(result.lines).toContain(String.raw`PRIVMSG NickServ :IDENTIFY pa\tss\new\x41`);
+  });
 });
 
 describe("irc client readiness timeout", () => {
@@ -254,7 +262,7 @@ describe("irc client PRIVMSG chunking on the wire", () => {
   it("rejects text that becomes empty after transport sanitization", async () => {
     const server = await startLoopbackIrcServer();
     try {
-      await expect(collectPrivmsgBodies(server, String.raw`\u0001`)).rejects.toThrow(
+      await expect(collectPrivmsgBodies(server, "\u0001")).rejects.toThrow(
         "Message must be non-empty for IRC sends",
       );
       expect(server.lines.some((line) => line.startsWith("PRIVMSG "))).toBe(false);
