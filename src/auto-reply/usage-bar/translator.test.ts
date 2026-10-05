@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildUsageContract } from "./contract.js";
+import { DEFAULT_USAGE_BAR_TEMPLATE } from "./default-template.js";
 import { renderUsageBar, type UsageBarTemplate } from "./translator.js";
 
 const SCALES = {
@@ -32,6 +33,14 @@ describe("usage-bar verbs", () => {
     );
     expect(render([{ text: "{x|num}" }], { x: 272000 })).toBe("272k");
     expect(render([{ text: "{x|num}" }], { x: 128 })).toBe("128");
+  });
+
+  it("num — switches to millions instead of four-digit thousands", () => {
+    expect(render([{ text: "{x|num}" }], { x: 1_000_000 })).toBe("1.0m");
+    expect(render([{ text: "{x|num}" }], { x: 1_048_576 })).toBe("1.0m");
+    expect(render([{ text: "{x|num}" }], { x: 999_999 })).toBe("1.0m");
+    expect(render([{ text: "{x|num}" }], { x: 2_500_000 })).toBe("2.5m");
+    expect(render([{ text: "{x|num}" }], { x: -2_500_000 })).toBe("-2.5m");
   });
 
   it("fixed — fixed-decimal precision", () => {
@@ -220,5 +229,21 @@ describe("usage-bar end-to-end with buildUsageContract", () => {
       { text: " | ${cost.turn_usd|fixed:4}" },
     ];
     expect(renderUsageBar(tpl(pieces), contract)).toBe("opus46 | med🐌 | 📚 [⣿⣿⣿⣧⠐]272k | $0.0377");
+  });
+
+  it("renders a 1M context window as 1.0m in the default footer", () => {
+    const contract = buildUsageContract(
+      {
+        provider: "google",
+        model: "gemini-2.5-pro",
+        contextTokenBudget: 1_048_576,
+        contextUsedTokens: 524_288,
+        usage: { input: 524_288, output: 20, total: 524_308 },
+      },
+      "telegram",
+    );
+    expect(renderUsageBar(DEFAULT_USAGE_BAR_TEMPLATE, contract)).toBe(
+      "google🤖gemini-2.5-pro | 📚[⣿⣿⡇⠐⠐]1.0m",
+    );
   });
 });

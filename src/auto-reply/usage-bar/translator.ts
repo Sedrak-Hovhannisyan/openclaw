@@ -5,6 +5,7 @@ import {
   isRecord as isObject,
   parseStrictInteger,
 } from "@openclaw/normalization-core";
+import { formatTokenCount } from "../../utils/token-format.js";
 export type UsageBarTemplate = Record<string, unknown>;
 export type UsageContract = Record<string, unknown>;
 type Vocab = Record<string, unknown>;
@@ -32,8 +33,9 @@ function num(value: unknown): string {
     return "";
   }
   if (Math.abs(n) >= 1000) {
-    const v = n / 1000;
-    return Math.abs(v) < 10 ? `${v.toFixed(1)}k` : `${Math.round(v)}k`;
+    // Share the usage line's token units so million-scale counts read "1.0m", not "1000k".
+    const compact = formatTokenCount(Math.abs(n));
+    return n < 0 ? `-${compact}` : compact;
   }
   return String(Math.trunc(n));
 }
