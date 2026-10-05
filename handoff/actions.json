@@ -57,11 +57,20 @@
       "why": "The title was saved with HTML entities (&lt; / &gt;). Set it to exactly this string, title only, leaving the body alone. Pass it to gh in single quotes, e.g. gh pr edit 165753 --repo openclaw/openclaw --title 'fix(text): keep prose between `<|` and `|>` operators in replies', then confirm with gh pr view 165753 --repo openclaw/openclaw --json title that it shows literal < and > characters."
     },
     {
+      "id": "165744-fallbacks-only",
+      "type": "edit_pr",
+      "pr": 165744,
+      "title": "fix(models): `models fallbacks add` saves a typo'd provider that `models set` refuses",
+      "body_file": "handoff/pr-models-fallbacks-unknown-provider-body.md",
+      "why": "CI failed because the aliases part broke runtime hook-alias providers. It is reverted on the branch (head 70ba197b1), so the PR is fallbacks-only again. Set this title and body before posting the re-review comment."
+    },
+    {
       "id": "165744-rereview",
       "type": "comment",
       "pr": 165744,
       "body": "@clawsweeper re-review",
-      "why": "ClawSweeper's review lease on head 67b99c59f expired at 20:03 UTC with no verdict. Post this exactly once."
+      "why": "Ask for a fresh review of head 70ba197b1 after the title and body update. Post exactly once.",
+      "after": "165744-fallbacks-only"
     }
   ]
 }
