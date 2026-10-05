@@ -48,6 +48,13 @@
       "title": "fix(text): keep prose between `<|` and `|>` operators in replies",
       "body_file": "handoff/pr-special-token-prose-body.md",
       "checked": "Bug confirmed on upstream main 38784a3a; no duplicates; touched files unchanged upstream since Sep 21."
+    },
+    {
+      "id": "fix-165753-title",
+      "type": "edit_pr",
+      "pr": 165753,
+      "title": "fix(text): keep prose between `<|` and `|>` operators in replies",
+      "why": "The title was saved with HTML entities (&lt; / &gt;). Set it to exactly this string, title only, leaving the body alone. Pass it to gh in single quotes, e.g. gh pr edit 165753 --repo openclaw/openclaw --title 'fix(text): keep prose between `<|` and `|>` operators in replies', then confirm with gh pr view 165753 --repo openclaw/openclaw --json title that it shows literal < and > characters."
     }
   ]
 }
