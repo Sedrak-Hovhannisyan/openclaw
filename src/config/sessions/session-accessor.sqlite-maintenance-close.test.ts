@@ -2,16 +2,20 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { awaitGateBeforeSettlement, withinTest } from "../../../test/helpers/promise.js";
+import { flushLogger, setLoggerOverride } from "../../logging/logger.js";
 import { createDeferredCore } from "../../shared/deferred.js";
 import * as databaseResources from "../../state/openclaw-agent-db-resources.js";
 import {
   closeOpenClawAgentDatabaseByPathAsync,
+  closeOpenClawAgentDatabasesAsync,
   openOpenClawAgentDatabase,
 } from "../../state/openclaw-agent-db.js";
 import * as databaseExecution from "../../state/openclaw-agent-execution.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
+import { ensureSessionEntrySync } from "./session-accessor.sqlite-initial-entry.js";
 import * as maintenanceKick from "./session-accessor.sqlite-maintenance-kick.js";
 import * as maintenance from "./session-accessor.sqlite-maintenance.js";
+import { observeSessionMaintenancePlanningWorker } from "./session-accessor.sqlite-maintenance.test-support.js";
 import * as reclamationRun from "./session-accessor.sqlite-reclamation-run.js";
 import { resolveMaintenanceConfigFromInput } from "./store-maintenance.js";
 
@@ -155,3 +159,59 @@ it.for([
     });
   },
 );
+
+it("records an in-flight Worker planning pass revoked by database close as retirement", async (test) => {
+  await withOpenClawTestState(
+    { scenario: "minimal", env: { OPENCLAW_TEST_FILE_LOG: "1" } },
+    async (state) => {
+      const scope = {
+        agentId: "main",
+        env: state.env,
+        sessionKey: "agent:main:maintenance-close-retirement",
+      };
+      ensureSessionEntrySync(scope, { sessionId: "retirement", updatedAt: Date.now() });
+      const database = openOpenClawAgentDatabase(scope);
+      const file = state.path("maintenance-close.log");
+      fs.writeFileSync(file, "");
+      setLoggerOverride({ level: "debug", consoleLevel: "silent", file });
+      const closed = createDeferredCore();
+      observeSessionMaintenancePlanningWorker({
+        afterPrepare() {
+          // One-shot CLI teardown revokes every agent database resource mid-pass.
+          closed.resolve(closeOpenClawAgentDatabasesAsync());
+        },
+      });
+      try {
+        maintenanceKick.kickSessionEntryMaintenanceAfterWrite({
+          activeSessionKey: scope.sessionKey,
+          archiveDirectory: state.sessionsDir(),
+          maintenanceConfig: resolveMaintenanceConfigFromInput({ mode: "enforce" }),
+          scope: { agentId: scope.agentId, env: state.env, path: database.path },
+          storePath: database.path,
+        });
+        // Close joins the scheduler's active pass, including its outcome logging.
+        await withinTest(closed.promise, test.signal);
+        await flushLogger();
+        const messages = fs
+          .readFileSync(file, "utf8")
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => String((JSON.parse(line) as { message?: unknown }).message));
+        // Child-logger records inline their metadata after the message text.
+        const logged = (prefix: string) => messages.filter((message) => message.startsWith(prefix));
+        expect(logged("SQLite reclamation Worker failed")).toEqual([]);
+        expect(logged("slow SQLite reclamation Worker operation")).toEqual([]);
+        expect(logged("SQLite automatic session maintenance failed")).toEqual([]);
+        expect(
+          logged("SQLite reclamation Worker request retired by its database owner"),
+        ).toHaveLength(1);
+        expect(
+          logged("SQLite automatic session maintenance cancelled by database close"),
+        ).toHaveLength(1);
+      } finally {
+        await flushLogger();
+        setLoggerOverride(null);
+      }
+    },
+  );
+});

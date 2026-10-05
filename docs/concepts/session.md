@@ -298,6 +298,9 @@ a quiet window after the last write (one second, then two seconds). Three
 consecutive invalidations pause automatic retries and log the cause; a new
 entry write can schedule another attempt. `warn` mode captures the maintenance
 age fact without constructing or dispatching automatic reclamation.
+Closing the store, including when a one-shot CLI command exits, cancels an
+in-progress automatic pass and records the cancellation at debug level; the next
+write schedules a new pass. An uncertain write outcome still logs a warning.
 
 `maxEntries` defaults to 5000 unarchived session rows. Archived rows do not consume
 the cap. Existing explicit limits remain unchanged.

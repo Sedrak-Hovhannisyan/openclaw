@@ -48,6 +48,8 @@ export function logSqliteReclamationWorkerOutcome(params: {
   startedAt: number;
   outcome: "resolved" | "rejected";
   failure?: unknown;
+  /** Its database owner revoked the request, which then settled without committing. */
+  retired?: boolean;
   kind: string;
   workerThreadId?: number;
   exitCode?: number;
@@ -57,6 +59,9 @@ export function logSqliteReclamationWorkerOutcome(params: {
   if (params.outcome !== "rejected" && elapsedMs < SLOW_RECLAMATION_WORKER_MS) {
     return;
   }
+  // Close and shutdown revoke in-flight requests by design; the refusal and its
+  // time-to-revocation are not Worker failures. Callers prove the non-commit outcome.
+  const retired = params.outcome === "rejected" && params.retired === true;
   const failureText = (value: unknown) => {
     const text = formatErrorMessageWithCode(value);
     return truncateUtf16Safe(
@@ -66,15 +71,17 @@ export function logSqliteReclamationWorkerOutcome(params: {
       2_048,
     );
   };
-  const slow = elapsedMs >= SLOW_RECLAMATION_WORKER_MS;
+  const slow = !retired && elapsedMs >= SLOW_RECLAMATION_WORKER_MS;
   const superseded = params.failure instanceof SqliteReclamationInputsChangedError;
-  const level = superseded && !slow ? "debug" : "warn";
+  const level = retired || (superseded && !slow) ? "debug" : "warn";
   log[level](
-    slow
-      ? "slow SQLite reclamation Worker operation"
-      : superseded
-        ? "SQLite reclamation Worker superseded by newer inputs"
-        : "SQLite reclamation Worker failed",
+    retired
+      ? "SQLite reclamation Worker request retired by its database owner"
+      : slow
+        ? "slow SQLite reclamation Worker operation"
+        : superseded
+          ? "SQLite reclamation Worker superseded by newer inputs"
+          : "SQLite reclamation Worker failed",
     {
       pid: process.pid,
       threadId,

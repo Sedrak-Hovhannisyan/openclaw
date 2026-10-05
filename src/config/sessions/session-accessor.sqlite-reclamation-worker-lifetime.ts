@@ -393,6 +393,7 @@ export class SqliteReclamationWorker {
     this.opsServed += 1;
     this.commitGate = params.commitGate;
     let exitCode: number | undefined;
+    let settledRefusal: unknown;
     const operation = withSqliteMutationWorkerCoordination(
       this.stateContext,
       transport,
@@ -416,6 +417,7 @@ export class SqliteReclamationWorker {
           (value) => ({ value }),
           (error: unknown) => {
             if (error instanceof SqliteMutationWorkerSettledRefusal) {
+              settledRefusal = error.cause;
               return { error: error.cause };
             }
             throw error;
@@ -437,6 +439,9 @@ export class SqliteReclamationWorker {
         startedAt,
         outcome,
         failure,
+        // Revocation is observed before the caller can retire this Worker for its own
+        // failure; only the Worker's settled refusal proves that nothing committed.
+        retired: this.revoked && failure !== undefined && failure === settledRefusal,
         kind: params.diagnostics?.kind ?? params.kind,
         workerThreadId: this.workerThreadId,
         exitCode,

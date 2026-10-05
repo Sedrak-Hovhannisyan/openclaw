@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { runWithSqliteBusyTimeout } from "../../infra/sqlite-busy-timeout.js";
+import { hasSqliteWorkerOutcomeUnknown } from "../../infra/sqlite-worker-contract.js";
 import { createSqliteWorkerOperationAdmission } from "../../infra/sqlite-worker-operation-admission.js";
 import { getChildLogger } from "../../logging/logger.js";
 import { findOpenClawAgentDatabaseIdentity } from "../../state/openclaw-agent-db-identity.js";
@@ -46,6 +47,9 @@ export function runSessionMaintenanceMetadataInWorker(params: {
       workerThreadId,
       outcome,
       failure,
+      // Only database or shared-state close aborts the request lifetime before it settles;
+      // the executor tags every failure that may have committed as outcome-unknown.
+      retired: params.signal.aborted && !hasSqliteWorkerOutcomeUnknown(failure),
     });
   return runSessionEntryWorkerMutation<SessionMaintenanceMetadataResult>(
     plan.databaseOptions,

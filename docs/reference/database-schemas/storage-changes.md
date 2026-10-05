@@ -1790,6 +1790,9 @@ after confirmed rollback, with an open retained connection and current parent
 authority. The caller still receives its refusal; no mutation is replayed. Native
 failures and uncertain settlement still retire the worker. Retirement logs include
 the reason, last operation kind, age, operation count, and worker thread ID.
+A request refused because close or shutdown revoked its database owner is logged
+at debug level as a retirement, not as a slow or failed Worker operation; an
+uncertain write outcome still warns.
 Canonical validation scopes retain their existing native failure and drainage contract.
 
 During Doctor maintenance, session mutation and worker-close jobs retain the

@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
+import { formatErrorMessage } from "../../infra/errors.js";
+import { hasSqliteWorkerOutcomeUnknown } from "../../infra/sqlite-worker-contract.js";
 import {
   assertExistingDatabaseIdentity,
   readDatabasePathIdentitySync,
@@ -62,6 +64,7 @@ type SessionEntryMaintenanceOwner = SessionEntryMaintenanceRequest & {
   active?: Promise<void>;
   release?: Promise<void>;
   retirement?: Promise<void>;
+  databaseClosed?: boolean;
   generation: number;
   running: boolean;
   rejections: number;
@@ -152,6 +155,10 @@ export function kickSessionEntryMaintenanceAfterWrite(
   maintenanceByStore.set(databasePath, created);
   const unregister: Array<() => void> = [];
   created.unregisterClose = () => unregister.forEach((release) => release());
+  const retireForClose = () => {
+    created.databaseClosed = true;
+    retireMaintenanceOwner(databasePath, created);
+  };
   try {
     if (identity) {
       unregister.push(
@@ -169,9 +176,9 @@ export function kickSessionEntryMaintenanceAfterWrite(
         registerOpenClawAgentDatabaseAsyncResource({
           agentId: options.agentId,
           path: resourcePath,
-          revoke: () => retireMaintenanceOwner(databasePath, created),
+          revoke: retireForClose,
           close: async () => {
-            retireMaintenanceOwner(databasePath, created);
+            retireForClose();
             await created.retirement;
           },
         }),
@@ -510,8 +517,14 @@ async function runPendingMaintenance(
       }
       return;
     }
-    // Drain cancels discretionary work; independent failures stay visible.
-    if (
+    // Drain and database close cancel discretionary work. Close also revokes the request and
+    // executor, whose refusals precede this owner's check, so only uncertain writes warn.
+    if (owner.databaseClosed && !hasSqliteWorkerOutcomeUnknown(error)) {
+      getChildLogger({ subsystem: "session-sqlite" }).debug(
+        "SQLite automatic session maintenance cancelled by database close",
+        { error: formatErrorMessage(error), path: databasePath },
+      );
+    } else if (
       !isGatewayRestartDrainError(error) &&
       !(planningChanged && getGatewayRestartDrainSignal().aborted)
     ) {
