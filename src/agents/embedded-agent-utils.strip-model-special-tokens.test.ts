@@ -41,6 +41,14 @@ describe("stripModelSpecialTokens", () => {
     expect(stripModelSpecialTokens("<div>hello</div>")).toBe("<div>hello</div>");
   });
 
+  it("keeps prose between pipe operators", () => {
+    const text = "Elm: use <| for application.\n\nLater: chain with |> instead.";
+    expect(stripModelSpecialTokens(text)).toBe(text);
+    expect(stripModelSpecialTokens("In F#, <| pipes backward and |> pipes forward.")).toBe(
+      "In F#, <| pipes backward and |> pipes forward.",
+    );
+  });
+
   it("passes through text without tokens unchanged", () => {
     const text = "Just a normal response.";
     expect(stripModelSpecialTokens(text)).toBe(text);
