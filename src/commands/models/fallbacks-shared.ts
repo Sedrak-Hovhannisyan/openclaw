@@ -9,6 +9,7 @@ import {
   ensureFlagCompatibility,
   mergePrimaryFallbackConfig,
   modelKey,
+  requireKnownModelProvider,
   resolveModelTarget,
   resolveModelKeysFromEntries,
   resolveModelRefsFromEntries,
@@ -93,6 +94,7 @@ export async function addFallbackCommand(
     (cfg, context) => {
       const { runtimeConfig } = context;
       const resolved = resolveModelTarget({ raw: modelRaw, cfg: runtimeConfig });
+      requireKnownModelProvider(runtimeConfig, resolved);
       const nextModels = { ...cfg.agents?.defaults?.models };
       const targetKey = upsertCanonicalModelConfigEntry(nextModels, resolved, context);
       const existing = getFallbacks(cfg, params.key);

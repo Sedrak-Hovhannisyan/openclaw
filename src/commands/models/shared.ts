@@ -357,6 +357,20 @@ function resolveDefaultModelPrimaryTarget(params: {
     : resolveModelTarget({ raw: params.modelRaw, cfg: params.cfg });
 }
 
+/** Rejects a model selection whose provider no installed plugin or config declares. */
+export function requireKnownModelProvider(
+  cfg: OpenClawConfig,
+  ref: { provider: string; model: string },
+): ReturnType<typeof inspectModelReference> {
+  const inspection = inspectModelReference({ cfg, ref });
+  if (inspection.status === "unknown-provider") {
+    throw new Error(
+      `Unknown model provider "${inspection.provider}". Install a plugin that declares it or configure it under models.providers before selecting "${inspection.ref}". Config was not changed.`,
+    );
+  }
+  return inspection;
+}
+
 export async function updateDefaultModelPrimaryConfig(params: {
   modelRaw: string;
   field: "model" | "imageModel";
@@ -369,12 +383,7 @@ export async function updateDefaultModelPrimaryConfig(params: {
         resolveCfg: context.runtimeConfig,
         modelRaw: params.modelRaw,
       });
-      const inspection = inspectModelReference({ cfg: context.runtimeConfig, ref: resolvedTarget });
-      if (inspection.status === "unknown-provider") {
-        throw new Error(
-          `Unknown model provider "${inspection.provider}". Install a plugin that declares it or configure it under models.providers before selecting "${inspection.ref}". Config was not changed.`,
-        );
-      }
+      const inspection = requireKnownModelProvider(context.runtimeConfig, resolvedTarget);
       if (inspection.status === "unknown-model") {
         warning = `Warning: Model "${inspection.ref}" is not in the local model catalog for provider "${inspection.provider}". The provider is installed or configured, so the selection was saved; verify the model ID if it is not a newly released or self-hosted model.`;
       } else if (inspection.status === "uncatalogued-provider") {
