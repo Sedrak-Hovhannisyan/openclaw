@@ -1,0 +1,20 @@
+{
+  "repo": "openclaw/openclaw",
+  "fork": "Sedrak-Hovhannisyan/openclaw",
+  "actions": [
+    {
+      "id": "165720-body",
+      "type": "edit_pr_body",
+      "pr": 165720,
+      "body_file": "handoff/pr-165720-body.md",
+      "why": "Remove the unproven Telegram claim that made ClawSweeper ask for Telegram Test Server proof."
+    },
+    {
+      "id": "165720-rereview",
+      "type": "comment",
+      "pr": 165720,
+      "body": "@clawsweeper re-review",
+      "after": "165720-body"
+    }
+  ]
+}
