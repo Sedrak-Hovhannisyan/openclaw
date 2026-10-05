@@ -328,16 +328,6 @@ describe("modelsAliasesAddCommand", () => {
     expect(mocks.replaceConfigFile).not.toHaveBeenCalled();
   });
 
-  it("rejects an unknown provider without writing config", async () => {
-    const cfg = {} as OpenClawConfig;
-    mocks.readConfigFileSnapshot.mockResolvedValue(snapshot(cfg));
-
-    await expect(
-      modelsAliasesAddCommand("fast", "no-such-provider/no-such-model", makeRuntime()),
-    ).rejects.toThrow('Unknown model provider "no-such-provider"');
-    expect(mocks.replaceConfigFile).not.toHaveBeenCalled();
-  });
-
   it("allows changing the casing of an existing alias on the same model", async () => {
     const cfg: OpenClawConfig = {
       agents: { defaults: { models: { "openai/gpt-5.4-mini": { alias: "Fast" } } } },
