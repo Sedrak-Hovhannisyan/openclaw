@@ -28,9 +28,18 @@
       "id": "open-models-fallbacks-unknown-provider",
       "type": "open_pr",
       "head": "claude/models-fallbacks-unknown-provider",
-      "title": "fix(models): `models fallbacks add` saves a typo'd provider that `models set` refuses",
+      "title": "fix(models): `models fallbacks add` and `models aliases add` save a typo'd provider that `models set` refuses",
       "body_file": "handoff/pr-models-fallbacks-unknown-provider-body.md",
       "checked": "Bug confirmed on upstream main 11d3d04a; no duplicates; patch applies cleanly (offset only)."
+    },
+    {
+      "id": "sync-models-pr-title-body",
+      "type": "edit_pr",
+      "head": "claude/models-fallbacks-unknown-provider",
+      "title": "fix(models): `models fallbacks add` and `models aliases add` save a typo'd provider that `models set` refuses",
+      "body_file": "handoff/pr-models-fallbacks-unknown-provider-body.md",
+      "after": "open-models-fallbacks-unknown-provider",
+      "why": "The branch now also fixes `models aliases add`. Find the open PR whose head is this branch and set its title and body; no-op if they already match."
     }
   ]
 }
