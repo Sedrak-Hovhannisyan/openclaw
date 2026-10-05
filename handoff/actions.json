@@ -15,6 +15,14 @@
       "pr": 165720,
       "body": "@clawsweeper re-review",
       "after": "165720-body"
+    },
+    {
+      "id": "open-synology-chat-system-filter",
+      "type": "open_pr",
+      "head": "claude/synology-chat-system-filter",
+      "title": "fix(synology-chat): stop filtering words that end in \"system:\"",
+      "body_file": "handoff/pr-synology-chat-system-filter-body.md",
+      "checked": "Bug confirmed on upstream main f0d34cbd; no duplicate PRs or issues."
     }
   ]
 }
