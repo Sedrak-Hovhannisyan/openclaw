@@ -7,6 +7,7 @@ import { normalizeAlias } from "./alias-name.js";
 import { loadModelsConfig } from "./load-config.js";
 import {
   ensureFlagCompatibility,
+  requireKnownModelProvider,
   resolveModelTarget,
   upsertCanonicalModelConfigEntry,
   updateConfig,
@@ -62,6 +63,7 @@ export async function modelsAliasesAddCommand(
     (cfgLocal, context) => {
       // Alias resolution must share the snapshot whose hash fences this write.
       const resolved = resolveModelTarget({ raw: modelRaw, cfg: context.runtimeConfig });
+      requireKnownModelProvider(context.runtimeConfig, resolved);
       const nextModels = { ...cfgLocal.agents?.defaults?.models };
       const modelKey = upsertCanonicalModelConfigEntry(nextModels, resolved, context);
       target = modelKey;
