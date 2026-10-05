@@ -23,6 +23,14 @@
       "title": "fix(synology-chat): stop filtering words that end in \"system:\"",
       "body_file": "handoff/pr-synology-chat-system-filter-body.md",
       "checked": "Bug confirmed on upstream main f0d34cbd; no duplicate PRs or issues."
+    },
+    {
+      "id": "open-models-fallbacks-unknown-provider",
+      "type": "open_pr",
+      "head": "claude/models-fallbacks-unknown-provider",
+      "title": "fix(models): `models fallbacks add` saves a typo'd provider that `models set` refuses",
+      "body_file": "handoff/pr-models-fallbacks-unknown-provider-body.md",
+      "checked": "Bug confirmed on upstream main 11d3d04a; no duplicates; patch applies cleanly (offset only)."
     }
   ]
 }
