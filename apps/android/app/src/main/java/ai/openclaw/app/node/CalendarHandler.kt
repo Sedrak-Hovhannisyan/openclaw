@@ -36,11 +36,6 @@ internal data class CalendarAddRequest(
   val calendarTitle: String?,
 )
 
-private data class CalendarAddRange(
-  val start: Instant,
-  val end: Instant,
-)
-
 /** Null defaults keep absent optional fields out of the serialized payload. */
 @Serializable
 internal data class CalendarEventRecord(
@@ -83,16 +78,7 @@ private object SystemCalendarDataSource : CalendarDataSource {
     // Instances expands recurring events inside the requested time window.
     ContentUris.appendId(builder, request.startMs)
     ContentUris.appendId(builder, request.endMs)
-    val projection =
-      arrayOf(
-        CalendarContract.Instances.EVENT_ID,
-        CalendarContract.Instances.TITLE,
-        CalendarContract.Instances.BEGIN,
-        CalendarContract.Instances.END,
-        CalendarContract.Instances.ALL_DAY,
-        CalendarContract.Instances.EVENT_LOCATION,
-        CalendarContract.Instances.CALENDAR_DISPLAY_NAME,
-      )
+    val projection = eventProjection(instances = true)
     val sortOrder = "${CalendarContract.Instances.BEGIN} ASC LIMIT ${request.limit}"
     resolver.query(builder.build(), projection, null, null, sortOrder).use { cursor ->
       if (cursor == null) return emptyList()
@@ -121,11 +107,8 @@ private object SystemCalendarDataSource : CalendarDataSource {
         request.location?.let { put(CalendarContract.Events.EVENT_LOCATION, it) }
         request.notes?.let { put(CalendarContract.Events.DESCRIPTION, it) }
       }
-    val uri =
-      resolver.insert(CalendarContract.Events.CONTENT_URI, values)
-        ?: throw IllegalStateException("calendar insert failed")
     val eventId =
-      uri.lastPathSegment?.toLongOrNull()
+      resolver.insert(CalendarContract.Events.CONTENT_URI, values)?.lastPathSegment?.toLongOrNull()
         ?: throw IllegalStateException("calendar insert failed")
     return loadEventById(resolver, eventId)
       ?: throw IllegalStateException("calendar insert failed")
@@ -184,16 +167,7 @@ private object SystemCalendarDataSource : CalendarDataSource {
     resolver: ContentResolver,
     eventId: Long,
   ): CalendarEventRecord? {
-    val projection =
-      arrayOf(
-        CalendarContract.Events._ID,
-        CalendarContract.Events.TITLE,
-        CalendarContract.Events.DTSTART,
-        CalendarContract.Events.DTEND,
-        CalendarContract.Events.ALL_DAY,
-        CalendarContract.Events.EVENT_LOCATION,
-        CalendarContract.Events.CALENDAR_DISPLAY_NAME,
-      )
+    val projection = eventProjection(instances = false)
     resolver
       .query(
         CalendarContract.Events.CONTENT_URI,
@@ -208,6 +182,17 @@ private object SystemCalendarDataSource : CalendarDataSource {
   }
 
   // Instances and Events queries project the same seven fields in this order.
+  private fun eventProjection(instances: Boolean): Array<String> =
+    arrayOf(
+      if (instances) CalendarContract.Instances.EVENT_ID else CalendarContract.Events._ID,
+      CalendarContract.Events.TITLE,
+      if (instances) CalendarContract.Instances.BEGIN else CalendarContract.Events.DTSTART,
+      if (instances) CalendarContract.Instances.END else CalendarContract.Events.DTEND,
+      CalendarContract.Events.ALL_DAY,
+      CalendarContract.Events.EVENT_LOCATION,
+      CalendarContract.Events.CALENDAR_DISPLAY_NAME,
+    )
+
   private fun Cursor.toCalendarEventRecord(): CalendarEventRecord =
     CalendarEventRecord(
       identifier = getLong(0).toString(),
@@ -281,38 +266,27 @@ class CalendarHandler internal constructor(
 
   private fun parseAddRequest(paramsJson: String?): CalendarAddRequest? {
     val params = parseJsonParamsObject(paramsJson) ?: return null
-    val start =
+    var start =
       parseISO((params["startISO"] as? JsonPrimitive)?.content)
         ?: return null
-    val end =
+    var end =
       parseISO((params["endISO"] as? JsonPrimitive)?.content)
         ?: return null
     val isAllDay = (params["isAllDay"] as? JsonPrimitive)?.content?.toBooleanStrictOrNull() ?: false
-    val addRange = normalizeAddRange(start, end, isAllDay)
+    if (isAllDay && end > start) {
+      start = start.truncatedTo(ChronoUnit.DAYS)
+      end = maxOf(end.truncatedTo(ChronoUnit.DAYS), start.plus(1, ChronoUnit.DAYS))
+    }
     return CalendarAddRequest(
       title = parseJsonString(params, "title")?.trim().orEmpty(),
-      startMs = addRange.start.toEpochMilli(),
-      endMs = addRange.end.toEpochMilli(),
+      startMs = start.toEpochMilli(),
+      endMs = end.toEpochMilli(),
       isAllDay = isAllDay,
       timeZoneId = if (isAllDay) "UTC" else TimeZone.getDefault().id,
       location = parseJsonString(params, "location")?.trim()?.ifEmpty { null },
       notes = parseJsonString(params, "notes")?.trim()?.ifEmpty { null },
       calendarId = (params["calendarId"] as? JsonPrimitive)?.content?.toLongOrNull(),
       calendarTitle = parseJsonString(params, "calendarTitle")?.trim()?.ifEmpty { null },
-    )
-  }
-
-  private fun normalizeAddRange(
-    start: Instant,
-    end: Instant,
-    isAllDay: Boolean,
-  ): CalendarAddRange {
-    if (!isAllDay || end <= start) return CalendarAddRange(start = start, end = end)
-    val dayStart = start.truncatedTo(ChronoUnit.DAYS)
-    val dayEnd = end.truncatedTo(ChronoUnit.DAYS)
-    return CalendarAddRange(
-      start = dayStart,
-      end = if (dayEnd > dayStart) dayEnd else dayStart.plus(1, ChronoUnit.DAYS),
     )
   }
 

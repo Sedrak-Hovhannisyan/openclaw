@@ -11,14 +11,18 @@ import { getCliHistoryWriter, runWithCliHistoryWriter } from "./cli-history-boun
 import type {
   SessionTranscriptContextVersion,
   SessionTranscriptWriteScope,
-  TranscriptAppendRefusal,
 } from "./session-accessor.sqlite-contract.js";
+import type { CapturedSessionEntryReadSource } from "./session-entry-read-source.types.js";
+import { SessionTranscriptWriterClaimReboundError } from "./session-transcript-writer-claim-error.js";
 import {
   captureSessionTranscriptStorageEnvironment,
   sameSessionTranscriptStorageEnvironment,
   sameSessionTranscriptTargetBinding,
   type SessionTranscriptTargetBinding,
 } from "./transcript-target-binding.js";
+import type { SessionEntry } from "./types.js";
+
+export { SessionTranscriptWriterClaimReboundError } from "./session-transcript-writer-claim-error.js";
 
 export type SessionMetadataChange =
   | Pick<ModelChangeEntry, "type" | "provider" | "modelId">
@@ -83,7 +87,59 @@ type SessionTranscriptWriteRequest = Pick<
   "sessionFile" | "sessionKey" | "sessionTarget"
 >;
 
-const ownedTranscriptWriteContext = new AsyncLocalStorage<OwnedSessionTranscriptWriteContext>();
+type TranscriptSourcePublication = {
+  target: SessionTranscriptWriteTarget;
+  claimed: boolean;
+  publish?: (source: CapturedSessionEntryReadSource, entry: SessionEntry) => void;
+};
+
+const ownedTranscriptWriteContext = new AsyncLocalStorage<
+  OwnedSessionTranscriptWriteContext & { sourcePublication?: TranscriptSourcePublication }
+>();
+
+/** Bind an initiating write's acknowledged source before fallible publication observers. */
+export async function withSessionTranscriptSourcePublication<T>(
+  target: SessionTranscriptWriteTarget,
+  publish: NonNullable<TranscriptSourcePublication["publish"]>,
+  run: () => Promise<T>,
+): Promise<T> {
+  const parent = ownedTranscriptWriteContext.getStore();
+  const publication: TranscriptSourcePublication = {
+    target: captureWriteTarget(target),
+    claimed: false,
+    publish,
+  };
+  try {
+    return await ownedTranscriptWriteContext.run(
+      {
+        ...parent,
+        withTranscriptWrite: parent ? (write) => parent.withTranscriptWrite(write) : trackAsyncWork,
+        sourcePublication: publication,
+      },
+      run,
+    );
+  } finally {
+    publication.publish = undefined;
+  }
+}
+
+export function captureSessionTranscriptSourcePublication(
+  target: SessionTranscriptWriteTarget,
+): TranscriptSourcePublication["publish"] {
+  const publication = ownedTranscriptWriteContext.getStore()?.sourcePublication;
+  if (
+    !publication ||
+    publication.claimed ||
+    !contextMatches({
+      context: { sessionTarget: publication.target, withTranscriptWrite: trackAsyncWork },
+      sessionTarget: captureWriteTarget(target),
+    })
+  ) {
+    return undefined;
+  }
+  publication.claimed = true;
+  return (source, entry) => publication.publish?.(source, entry);
+}
 
 function captureWriteTarget(target: SessionTranscriptWriteTarget): SessionTranscriptWriteTarget {
   const storePath = target.storePath?.trim();
@@ -422,13 +478,6 @@ export function withOwnedSessionTranscriptWriterFence<T extends SessionTranscrip
     return { ...scope, ...fence, expectedOwner: { ...expectedOwner } };
   }
   return fence ? { ...scope, ...fence } : scope;
-}
-
-export class SessionTranscriptWriterClaimReboundError extends Error {
-  constructor(cause?: TranscriptAppendRefusal) {
-    super("session writer claim changed before transcript persistence", { cause });
-    this.name = "SessionTranscriptWriterClaimReboundError";
-  }
 }
 
 export async function runWithOwnedSessionTranscriptWrite<T>(

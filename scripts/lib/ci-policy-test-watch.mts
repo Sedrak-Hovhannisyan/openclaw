@@ -296,6 +296,7 @@ const policyTestWatches: readonly PolicyTestWatch[] = [
     "src/agents/embedded-agent-runner/run/attempt-stream-custody.test.ts",
     "src/agents/embedded-agent-runner/run/attempt-transcript-lifecycle-prepare.test.ts",
     "src/agents/embedded-agent-runner/run/attempt.spawn-workspace.context-engine.test.ts",
+    "src/agents/embedded-agent-runner/run/attempt.spawn-workspace.orphan.test.ts",
     "src/agents/embedded-agent-runner/transcript-rewrite.test.ts",
     "src/agents/subagents/spawn/subagent-spawn.preparation-authority.test.ts",
   ].map((testFile): PolicyTestWatch => ({
@@ -413,7 +414,6 @@ const policyTestWatches: readonly PolicyTestWatch[] = [
   ...[
     "src/agents/worktrees/empty-source.test.ts",
     "src/agents/worktrees/service.remove-lease.test.ts",
-    "src/agents/worktrees/service.snapshot-index.test.ts",
     "src/agents/worktrees/service.test.ts",
   ].map((testFile): PolicyTestWatch => ({
     testFile,
@@ -553,15 +553,6 @@ const policyTestWatches: readonly PolicyTestWatch[] = [
   {
     testFile: "src/commands/doctor-maintenance.worker.test.ts",
     watchGlobs: [
-      "src/infra/sqlite-store.worker.ts",
-      "src/state/openclaw-state-worker-runtime.ts",
-      "src/state/openclaw-state.worker.ts",
-    ],
-  },
-  {
-    testFile: "src/commands/doctor-sandbox-legacy-registry.test.ts",
-    watchGlobs: [
-      "src/agents/sandbox/registry-import.worker.ts",
       "src/infra/sqlite-store.worker.ts",
       "src/state/openclaw-state-worker-runtime.ts",
       "src/state/openclaw-state.worker.ts",
@@ -1173,15 +1164,18 @@ const policyTestWatches: readonly PolicyTestWatch[] = [
     watchGlobs: ["src/plugin-state/plugin-state.worker.ts"],
   },
   {
-    testFile: "src/plugin-sdk/session-transcript-runtime.catalog.test.ts",
+    testFile: "src/plugin-sdk/session-transcript-runtime.test.ts",
     watchGlobs: [
       "src/config/sessions/session-cold-storage-worker.ts",
       "src/config/sessions/session-transcript-reconcile.worker.ts",
     ],
   },
   {
-    testFile: "src/plugin-sdk/session-transcript-runtime.read-fence.test.ts",
-    watchGlobs: ["src/config/sessions/session-transcript-reconcile.worker.ts"],
+    testFile: "src/plugin-sdk/session-transcript-runtime.guarded.test.ts",
+    watchGlobs: [
+      "src/config/sessions/session-cold-storage-worker.ts",
+      "src/config/sessions/session-transcript-reconcile.worker.ts",
+    ],
   },
   ...[
     "src/plugin-state/plugin-blob-store.readonly.test.ts",

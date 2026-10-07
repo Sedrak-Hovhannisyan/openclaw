@@ -155,7 +155,13 @@ async function runStateLeaseOwnerInScope<T>(
     if (validated.signal?.aborted) {
       throw abortError(validated.signal, "operation", validated.leaseLabel);
     }
-    if (closed || timerHeartbeat?.isExpired()) {
+    if (
+      closed ||
+      timerHeartbeat?.isExpired() ||
+      (phase === "owned" &&
+        expiryObservation !== undefined &&
+        Number(Atomics.load(expiryObservation, leaseHeartbeatState.expiresAt)) <= Date.now())
+    ) {
       abortLost();
       throw leaseLost.signal.reason;
     }
@@ -575,11 +581,17 @@ async function runStateLeaseOwnerInScope<T>(
           databasePath: resolveLeaseDatabasePath(validated.database),
           assertCurrent: () => {
             assertActive();
-            if (
-              validated.heartbeat === "worker" ||
-              validated.database.schemaPolicy === "existing"
-            ) {
+            if (validated.database.schemaPolicy === "existing") {
               throw new Error("This lease mode does not support worker writes");
+            }
+            if (validated.heartbeat === "worker") {
+              if (!workerHeartbeat) {
+                abortLost();
+                throw leaseLost.signal.reason;
+              }
+              // The worker transaction rechecks durable expiry; host grants only check liveness.
+              workerHeartbeat.assertRunning();
+              return;
             }
             // A delayed expiry timer must not admit another synchronous effect.
             if (confirmedExpiresAt === undefined || Date.now() >= confirmedExpiresAt) {
