@@ -47,6 +47,7 @@ describe("stripModelSpecialTokens", () => {
     expect(stripModelSpecialTokens("In F#, <| pipes backward and |> pipes forward.")).toBe(
       "In F#, <| pipes backward and |> pipes forward.",
     );
+    expect(stripModelSpecialTokens("a <| b |> c<|im_end|><|endoftext|>")).toBe("a <| b |> c");
   });
 
   it("passes through text without tokens unchanged", () => {
