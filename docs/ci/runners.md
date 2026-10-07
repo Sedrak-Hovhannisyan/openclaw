@@ -18,9 +18,16 @@ request; a newer request can cancel and replace that pending request. Hash
 collisions can leave other slots unused; this is a ceiling, not a promise of
 32 busy machines.
 
-Admission expires ten minutes after the workflow was created. A request that
-waits longer fails before checkout or hydration when its runner starts; it can
-still incur runner startup cost. This does not remove the queued job immediately.
+Admission expires 60 minutes after the workflow was created. This bounded queue
+allowance lets waiting clients survive saturation beyond the former ten-minute
+cutoff without admitting arbitrarily old abandoned requests. It is an operating
+bound, not a measured queue percentile or proof that the client is still waiting:
+the delegated warmup contract exposes no requester heartbeat to these workflows,
+and SSH activity is only available after runner assignment. A request that waits
+60 minutes or longer fails before checkout or hydration when its runner starts;
+it can still incur runner startup cost. Abandoned requests younger than the bound
+can still hydrate, so caller cleanup remains required. This does not remove the
+queued job immediately or reset the clock when a runner is assigned.
 Once the request passes that check, checkout and hydration do not recheck queue
 age. They remain bounded by the job timeout and idle limit.
 Stop an abandoned lease by its exact ID instead of leaving a warmup pending.
@@ -32,6 +39,18 @@ task-owned run remains pending, use `gh run cancel <run-id> --repo openclaw/open
 and confirm its terminal state. If the lease-to-run match is unavailable, report
 the unresolved cleanup instead of canceling a guessed run.
 Do not retry in a loop when the pool is full.
+
+If the admission job cannot read its GitHub Actions run, it denies admission and
+reports the HTTP status, a fixed error classification, and validated GitHub request
+ID and rate-limit/retry headers when available. Error bodies are limited to 8 KiB
+within the existing 15-second request deadline; raw response messages and bodies
+are never logged. A bare `403` is reported as `forbidden`, not assumed to be a
+permission or rate-limit failure. Use the request ID to investigate the original
+GitHub response; a later successful request does not explain an earlier rejection.
+Honor `retry-after` (seconds) before a later request. When
+`x-ratelimit-remaining=0`, wait until `x-ratelimit-reset` (UTC epoch seconds).
+Admission does not retry or change token permissions, and caller cleanup remains
+required for a failed request.
 
 Idle requests are capped at 15 minutes. The existing Testbox monitor continues
 to protect active SSH commands. Stop retained leases when their task finishes;
@@ -87,7 +106,7 @@ These controls cover dispatches using the updated workflows in this repository.
 The OpenClaw wrapper selects the workflow from `main` for Testbox `run` and
 `warmup`, overriding configured refs and rejecting explicit historical refs.
 Its source capsule still reconstructs the checkout being tested. Old wrappers,
-direct historical-ref dispatches, other repositories, alternate workflows, and Windows probe
+direct historical-ref dispatches, other repositories, alternate workflows, and Windows check
 workflows are outside the shared pool. Organization-wide concurrency, per-token
 admission, SKU restrictions, and a hard spending stop require provider controls.
 
@@ -100,7 +119,7 @@ selection, and self-hosted setup retains its existing range and toolchain-cache
 policy. A restored cache key is not runtime proof: record the selected binary and
 `node -v` when comparing runner backends.
 
-Runner choice does not depend on the pull request author. Same-repository PRs use the configured backend. Fork first attempts, including first-time contributors, use the default Blacksmith routes when repository variables are unavailable; their Node planner uses Blacksmith timings and the same capacity promotion. Fork check jobs keep the hosted lint and type stripes because forks cannot mount the trusted caches that size the all-in-one jobs. The maintainers accepted the added Blacksmith spend. Fork retries route to GitHub-hosted runners. The repository backend override cannot reroute fork first attempts when the variable is unavailable. Pushes and manual dispatches are unaffected. Cache trust is a separate, stricter boundary: exact dependency restores require a pull request from `openclaw/openclaw`, and ordinary CI never publishes the shared archives. The separate trusted warmer owns publication.
+Runner choice does not depend on the pull request author. Same-repository PRs use the configured backend. Fork first attempts, including first-time contributors, use the default Blacksmith routes when repository variables are unavailable; their Node planner uses Blacksmith timings and the same capacity promotion. Fork check jobs keep the logical GitHub stripe layout because forks cannot mount the trusted caches that size the all-in-one jobs. Runner placement is separate from that layout and cache authority. The maintainers accepted the added Blacksmith spend. Fork retries route to GitHub-hosted runners. The repository backend override cannot reroute fork first attempts when the variable is unavailable. Pushes and manual dispatches are unaffected. Cache trust is a separate, stricter boundary: exact dependency restores require a pull request from `openclaw/openclaw`, and ordinary CI never publishes the shared archives. The separate trusted warmer owns publication.
 
 | Runner                           | Jobs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -117,6 +136,8 @@ Runner choice does not depend on the pull request author. Same-repository PRs us
 The table lists default placement. On eligible hybrid first attempts, the [hosted budget](/ci/capacity#bounded-hybrid-hosted-offload) can move `security-fast`, all three `checks-ui` rows, and only the browser-extension E2E row to `ubuntu-24.04`; the default Blacksmith routes apply when optional admission is closed.
 
 Baseline ratchets and Node shards start independently after preflight; the final gate still requires the selected ratchets to pass. Standalone ratchets use the Blacksmith 4-class on same-repository hybrid first attempts, automatic main runs, and admitted qualification dispatches. `check-plan` uses the 16-class for shared compiler snapshot memory on canonical first attempts with an unset, `blacksmith`, or `hybrid` backend, including fork PRs. The GitHub override, retries, ordinary manual and frozen targets, RunsOn planners, and noncanonical contexts retain hosted planning. Fork core type stripes with an unset or `blacksmith` backend also use the 16-class on current automatic first attempts. Their logical GitHub profile, five-stripe coverage, and restore-only cache authority remain unchanged; hybrid health admission retains its existing placement rules. Compiler and lint rows still wait for their complete plan; eligible guards and dependency rows start after preflight. See [admission measurements and cost](/ci/routing-costs#ratchet-admission-and-node-tests).
+
+Current canonical core lint stripes use the 16-class on automatic first attempts with an unset, `blacksmith`, or `hybrid` backend, including fork PRs. The same five fork rows still own their core and extension lint chunks; the remaining extension chunk stays in the combined `check-lint` row, which already uses the 16-class. Standalone `check-lint-extensions-*` rows are hybrid-only and retain their existing route. PR caches stay restore-only. Retries, ordinary dispatches, frozen targets, noncanonical repositories, and `OPENCLAW_CI_RUNNER_BACKEND=github` keep hosted core lint; existing RunsOn and qualification routes are unchanged.
 
 RunsOn retains its hosted placement for standalone ratchets and check planning, including qualification dispatches.
 
@@ -184,7 +205,7 @@ reconciliation, and producer work.
 Npm preflight retains `blacksmith-32vcpu-ubuntu-2404`. Main CI previously used
 the same class for test types, core type stripes, and runtime-topology checks
 to compensate for smaller delivered machines.
-In the [2026-09-01 capacity probe](https://github.com/openclaw/openclaw/actions/runs/33538827388),
+In the [2026-09-01 capacity check](https://github.com/openclaw/openclaw/actions/runs/33538827388),
 that label was the first measured class meeting the eight-CPU/24-GiB threshold
 used by OpenClaw's parallel-check policy:
 
@@ -199,7 +220,7 @@ used by OpenClaw's parallel-check policy:
 OS CPU count, affinity, Node, and CPU-time measurements agreed. Guest cgroup
 quotas were unlimited. The provider-side reason for the mismatch is unresolved;
 the table records observed capacity, not Blacksmith's advertised specifications
-or a guaranteed allocation. The probe measured capacity, not whole-release
+or a guaranteed allocation. The check measured capacity, not whole-release
 speedup or billing equivalence.
 
 Compact Node jobs retain the planner's 32-class request for two-child bins and
@@ -224,13 +245,13 @@ by the same planner and executor. Hosted routing still uses the workflow's trust
 and retry rules. This adds no jobs or runner registrations.
 
 Native compact rows that would request the 4-class now request the 8-class after
-packing. Both delivered two CPUs and 7.66 GiB in the capacity probe, while the
+packing. Both delivered two CPUs and 7.66 GiB in the capacity check, while the
 five-run September 21 sample showed a 125-second median assignment wait on the
 4-class. Logical packing classes, child processes, worker limits, and hosted
 fallbacks stay unchanged. This avoids that queue at a higher per-minute rate;
 the combined packing and hosted-check changes must establish the net cost saving.
 
-Current-target `build-artifacts` uses the existing 16-class. A [controlled Testbox proof](https://github.com/openclaw/openclaw/actions/runs/34669346942) at `3ccc3710bd6` completed all eight job compute steps in 229.3 seconds (252.8 seconds including payload setup) on four CPUs and 15.42 GiB RAM, with a 12.59 GiB cgroup peak and no recorded OOM events. The proof retained the complete parallel verifier wave and passed final source, worker-generation cleanup, and memory-event checks. The existing SDK memory gate keeps declarations serial below the capacity needed for both compiler heaps. Frozen targets and missing target classifications now request the same 16-class; hosted fallbacks, job counts, concurrency, and deadlines are unchanged. The recorded measurements establish compute fit for that tested current target, not historical targets or a guaranteed full Actions duration.
+Current-target `build-artifacts` uses the existing 16-class. A [controlled Testbox proof](https://github.com/openclaw/openclaw/actions/runs/34669346942) at `3ccc3710bd6` completed all eight job compute steps in 229.3 seconds (252.8 seconds including payload setup) on four CPUs and 15.42 GiB RAM, with a 12.59 GiB cgroup peak and no recorded OOM events. The proof retained the complete parallel verifier wave and passed final source, worker-generation cleanup, and memory-event checks. SDK declaration generation now uses one compiler program, with the existing child heap budget and native headroom. Frozen targets and missing target classifications now request the same 16-class; hosted fallbacks, job counts, concurrency, and deadlines are unchanged. The recorded measurements establish compute fit for that tested current target, not historical targets or a guaranteed full Actions duration.
 
 Existing recommendation-based promotions from the 8-class remain for `checks-node-compact-large-5` and `checks-node-compact-large-9`. Extension bundles follow the planner's runner metadata: the former bundle-16/bundle-25 overrides would attach old recommendations to different work after compaction. The former 32-to-16 overrides for `checks-node-compact-small-3`, `checks-node-compact-small-4`, and `checks-node-compact-small-10` are removed so these rows retain their planner-owned parallel or tooling capacity. Numbered bins can contain different work across profiles and revisions; the retained compact recommendations use a 24-hour window and still need ownership-based replacement when those bins change. A later recommendation identified CPU saturation for `build-artifacts` on the 16-class. Current complete-job duration and memory headroom still need measurement; the earlier controlled proof retains its original source scope.
 
@@ -311,7 +332,7 @@ The repository variable `OPENCLAW_CI_RUNNER_BACKEND` controls the runner backend
 | `hybrid`              | Eligible preflight and other critical-path jobs use Blacksmith on attempt 1 | Blacksmith on attempt 1; GitHub-hosted on `github.run_attempt > 1`               | Rerunning a failed or stuck Blacksmith job automatically moves it to hosted capacity  |
 | `runson`              | Hybrid baseline                                                             | Hybrid baseline, with pure cron child rows on RunsOn for eligible first attempts | Automatic Spot-interruption retries disabled; other reruns retain the hybrid fallback |
 
-Configurable heavy lanes are `build-artifacts` and `android`. The macOS Swift and iOS build jobs use GitHub-hosted `xcode-27` with Xcode 27; screenshot shards use `xcode-27-xlarge`. The focused `macos-node` lane uses the existing GitHub-hosted `macos-15` image in hybrid mode, with the same test inventory and two-worker limit. `openclaw/ci-gate` always uses `ubuntu-24.04`: its Bash-only result aggregation needs no checkout or dependency setup. This removes one Blacksmith registration from previously eligible runs without adding jobs or changing the required check. Hosted runner assignment can still delay completion. Trusted automatic hybrid first-attempt `preflight` requests the existing 16-class after three nearby hosted preflights remained unassigned while their Blacksmith security jobs completed. Hybrid retries, manual dispatches, noncanonical contexts, and the `github` override stay hosted. Unset or `blacksmith` keeps the existing 4-class route. Logical planner profile, cache trust, steps and the 20-minute deadline remain unchanged; actual assignment and completion still require CI proof. `security-fast` uses Blacksmith only on eligible hybrid first attempts when the [hosted budget](/ci/capacity#bounded-hybrid-hosted-offload) cannot admit optional work, and stays hosted outside `hybrid`. It waits for preflight to count the selected hosted rows, and still executes after a preflight failure unless the workflow is canceled. Security hooks use pinned installed packages and local hook definitions, so they no longer initialize remote Git repositories. Budget two control-job registrations per eligible hybrid first attempt when optional hosted admission is closed, one when admitted, and one per normal Blacksmith run; both jobs are already reserved in the conservative registration ceiling. The `github` override remains unchanged. Hybrid sends the compact Node matrix, up to 80 compact rows plus separately appended plugin fallback rows, thirteen-row `checks-ui-e2e` matrix for targets with the named-project contract, the `checks-ui-e2e-real-gateway` lane that shares its serial Chromium workload, four-row QA Smoke matrix on canonical automatic runs (six rows for manual dispatches), the two-part Windows matrix, `checks-ui`, `check-lint`, `check-test-types`, the five `check-test-types-core-*` rows, `check-dependencies`, `check-additional-extension-package-boundary`, `check-additional-runtime-topology-architecture`, and `report-plugin-sdk-api-diff` to Blacksmith on attempt 1. Eligible two-child ordinary compact rows request `blacksmith-32vcpu-ubuntu-2404`; bins containing the full `agentic-cli` group request `blacksmith-32vcpu-ubuntu-2404` after planning. Other compact-small rows retain `blacksmith-4vcpu-ubuntu-2404`, compact-large rows retain `blacksmith-8vcpu-ubuntu-2404`, and the planner's measured small queue-tail promotions retain their 8-vCPU labels. Within that set, `checks-ui` and only the browser-extension E2E row move to hosted Ubuntu when preflight admits at most five optional rows below the 45-row hosted limit. Every other configurable `ci.yml` lane stays hosted in hybrid, including the core-lint jobs, the remaining lint/check rows, docs, and Python skills. Separate Opengrep workflows remain GitHub-hosted.
+Configurable heavy lanes are `build-artifacts` and `android`. The macOS Swift and iOS build jobs use GitHub-hosted `xcode-27` with Xcode 27; screenshot shards use `xcode-27-xlarge`. The focused `macos-node` lane uses the existing GitHub-hosted `macos-15` image in hybrid mode, with the same test inventory and two-worker limit. `openclaw/ci-gate` always uses `ubuntu-24.04`: its Bash-only result aggregation needs no checkout or dependency setup. This removes one Blacksmith registration from previously eligible runs without adding jobs or changing the required check. Hosted runner assignment can still delay completion. Trusted automatic hybrid first-attempt `preflight` requests the existing 16-class after three nearby hosted preflights remained unassigned while their Blacksmith security jobs completed. Hybrid retries, manual dispatches, noncanonical contexts, and the `github` override stay hosted. Unset or `blacksmith` keeps the existing 4-class route. Logical planner profile, cache trust, steps and the 20-minute deadline remain unchanged; actual assignment and completion still require CI proof. `security-fast` uses Blacksmith only on eligible hybrid first attempts when the [hosted budget](/ci/capacity#bounded-hybrid-hosted-offload) cannot admit optional work, and stays hosted outside `hybrid`. It waits for preflight to count the selected hosted rows, and still executes after a preflight failure unless the workflow is canceled. Security hooks use pinned installed packages and local hook definitions, so they no longer initialize remote Git repositories. Budget two control-job registrations per eligible hybrid first attempt when optional hosted admission is closed, one when admitted, and one per normal Blacksmith run; both jobs are already reserved in the conservative registration ceiling. The `github` override remains unchanged. Hybrid sends the compact Node matrix, up to 80 compact rows plus separately appended plugin fallback rows, thirteen-row `checks-ui-e2e` matrix for targets with the named-project contract, the `checks-ui-e2e-real-gateway` lane that shares its serial Chromium workload, four-row QA Smoke matrix on canonical automatic runs (six rows for manual dispatches), the two-part Windows matrix, `checks-ui`, `check-lint`, `check-test-types`, the five `check-test-types-core-*` rows, `check-dependencies`, `check-additional-extension-package-boundary`, `check-additional-runtime-topology-architecture`, and `report-plugin-sdk-api-diff` to Blacksmith on attempt 1. Eligible two-child ordinary compact rows request `blacksmith-32vcpu-ubuntu-2404`; bins containing the full `agentic-cli` group request `blacksmith-32vcpu-ubuntu-2404` after planning. Other compact-small rows retain `blacksmith-4vcpu-ubuntu-2404`, compact-large rows retain `blacksmith-8vcpu-ubuntu-2404`, and the planner's measured small queue-tail promotions retain their 8-vCPU labels. Within that set, `checks-ui` and only the browser-extension E2E row move to hosted Ubuntu when preflight admits at most five optional rows below the 45-row hosted limit. Every other configurable `ci.yml` lane stays hosted in hybrid, including the remaining lint/check rows, docs, and Python skills. Separate Opengrep workflows remain GitHub-hosted.
 
 ### RunsOn qualification
 
@@ -389,7 +410,7 @@ Automatic canonical hybrid first attempts inspect recent hosted assignment befor
 
 Dependencies, core type stripes, and runtime topology can use optional hosted capacity within the eligible PR workload's slack. Extension package boundaries retain Blacksmith because hosted cold-archive runs exceeded 22 minutes; their compiled receipts and dependency links are not yet portable across checkout roots. Admission retains the previous boundary-row reservation so this change does not expand other offloads. Main additionally admits lint and central types. In the September 22 five-run sample, the largest independent hosted check took 664 seconds; artifact builds reached 898 seconds and therefore retain Blacksmith. These observations replace the earlier projections made against a thirty-minute main objective. The current qualification target is a complete run within fifteen minutes, including preflight, assignment, setup, and the gate; routing estimates alone do not establish it. Automatic preflight retains Blacksmith. The admission guard now rejects waits at sixty seconds to match that target; API and job deadlines remain unchanged.
 
-This is an admission decision for future jobs. A hosted stall beginning after the snapshot can still delay admitted work, and existing hosted jobs remain exposed. The probe itself can add up to ten seconds to preflight. It never changes repository variables, migrates an already queued job, or retries failed work.
+This is an admission decision for future jobs. A hosted stall beginning after the snapshot can still delay admitted work, and existing hosted jobs remain exposed. The check itself can add up to ten seconds to preflight. It never changes repository variables, migrates an already queued job, or retries failed work.
 
 Hybrid is the normal degraded-capacity mode. If Blacksmith is down: rerun the failed or stuck heavy job; it lands on hosted automatically. During a full Blacksmith outage, record whether `OPENCLAW_CI_RUNNER_BACKEND` is set and its current value, then enable the `github` circuit breaker:
 
@@ -447,7 +468,7 @@ Delete the variable only if it was previously unset; deletion selects the defaul
 gh variable delete OPENCLAW_CI_RUNNER_BACKEND --repo openclaw/openclaw
 ```
 
-`ci.yml` does not probe Blacksmith or mutate this variable. Hybrid fallback is per job and activates only when a coordinator reruns the workflow or selected failed jobs.
+`ci.yml` does not check Blacksmith or mutate this variable. Hybrid fallback is per job and activates only when a coordinator reruns the workflow or selected failed jobs.
 
 ## Related
 
