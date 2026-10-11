@@ -524,7 +524,7 @@ describe("model command provider preparation", () => {
             ).toHaveLength(5);
           }
           expect(fs.readFileSync(marker, "utf8")).toBe(
-            "registered\n".repeat(scope === "exact" ? 6 : 1),
+            "registered\n".repeat(scope === "exact" ? 2 : 1),
           );
         }),
       );
