@@ -181,4 +181,38 @@ describe("core/doctor/skill-workshop-tool-policy", () => {
         : [],
     );
   });
+
+  it.each(["skill_workshop", "group:agents"])(
+    "skips the runtime warning for a CLI agent that denies %s",
+    async (deny) => {
+      const result = await runDoctorLintChecks(
+        {
+          mode: "lint",
+          runtime,
+          cfg: {
+            skills: { workshop: { autonomous: { mode: "auto" } } },
+            agents: {
+              ownership: "explicit",
+              entries: {
+                "opted-out": {
+                  model: { primary: "claude-cli/claude-sonnet-5" },
+                  tools: { deny: [deny] },
+                },
+                control: { model: { primary: "claude-cli/claude-sonnet-5" } },
+              },
+            },
+          },
+        },
+        { checks: [getSkillWorkshopCheck()] },
+      );
+
+      expect(result.findings).toEqual([
+        expect.objectContaining({
+          target: "control",
+          path: "agents.entries.control.model",
+          message: expect.stringContaining('CLI runtime "claude-cli"'),
+        }),
+      ]);
+    },
+  );
 });
