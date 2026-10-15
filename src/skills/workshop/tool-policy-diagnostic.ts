@@ -177,6 +177,15 @@ export function resolveSkillWorkshopToolPolicyAvailability(params: {
   };
 }
 
+// A deny is an intentional opt-out, even when a profile excludes the tool first.
+function hasExplicitSkillWorkshopDeny(
+  capabilityProfile: ResolvedConversationCapabilityProfile,
+): boolean {
+  return !isToolAllowedByPolicyName(SKILL_WORKSHOP_TOOL_NAME, {
+    deny: capabilityProfile.policy.explicitToolDenylist,
+  });
+}
+
 export function detectSkillWorkshopToolPolicyDiagnostic(params: {
   config: OpenClawConfig;
   workshopEnabled: boolean;
@@ -193,12 +202,7 @@ export function detectSkillWorkshopToolPolicyDiagnostic(params: {
     modelProvider: model.provider,
     modelId: model.model,
   });
-  // A deny is an intentional opt-out, even when a profile excludes the tool first.
-  if (
-    !isToolAllowedByPolicyName(SKILL_WORKSHOP_TOOL_NAME, {
-      deny: capabilityProfile.policy.explicitToolDenylist,
-    })
-  ) {
+  if (hasExplicitSkillWorkshopDeny(capabilityProfile)) {
     return null;
   }
   const prefix = `Skill Workshop is active, but ${JSON.stringify(SKILL_WORKSHOP_TOOL_NAME)} is hidden for agent ${JSON.stringify(agentId)}:`;
@@ -249,6 +253,15 @@ export function detectSkillWorkshopExperienceReviewRuntimeDiagnostic(
   }
   const agentId = normalizeAgentId(params.agentId ?? resolveDefaultAgentId(params.config));
   const model = resolveDefaultModelForAgent({ cfg: params.config, agentId });
+  const capabilityProfile = resolveConversationCapabilityProfile({
+    config: params.config,
+    agentId,
+    modelProvider: model.provider,
+    modelId: model.model,
+  });
+  if (hasExplicitSkillWorkshopDeny(capabilityProfile)) {
+    return null;
+  }
   // Runs select the runtime with the configured primary's auth-profile pin.
   const { cliExecutionProvider: runtime, useCliExecution } = resolveRunEntryCliRuntime({
     config: params.config,

@@ -128,7 +128,7 @@ describe("core/doctor/skill-workshop-tool-policy", () => {
       },
     } as OpenClawConfig;
 
-    const findings = await getSkillWorkshopCheck().detect({ mode: "doctor", runtime, cfg });
+    const findings = await detect(cfg);
 
     expect(findings).toEqual(
       testCase.warns
@@ -142,4 +142,30 @@ describe("core/doctor/skill-workshop-tool-policy", () => {
         : [],
     );
   });
+
+  it.each(["skill_workshop", "group:agents"])(
+    "skips the runtime warning for a CLI agent that denies %s",
+    async (deny) => {
+      const result = await lint({
+        agents: {
+          ownership: "explicit",
+          entries: {
+            "opted-out": {
+              model: { primary: "claude-cli/claude-sonnet-5" },
+              tools: { deny: [deny] },
+            },
+            control: { model: { primary: "claude-cli/claude-sonnet-5" } },
+          },
+        },
+      });
+
+      expect(result.findings).toEqual([
+        expect.objectContaining({
+          target: "control",
+          path: "agents.entries.control.model",
+          message: expect.stringContaining('CLI runtime "claude-cli"'),
+        }),
+      ]);
+    },
+  );
 });
