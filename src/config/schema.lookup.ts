@@ -3,7 +3,9 @@ import { isBlockedObjectKey } from "../infra/prototype-keys.js";
 import { parseConfigPathArrayIndex } from "../shared/path-array-index.js";
 import type { ConfigUiHints } from "./schema.hints.js";
 import {
+  createLookupExpansionBudget,
   LOOKUP_SCHEMA_COMPOSITION_KEYS,
+  MAX_LOOKUP_REFERENCED_NODES,
   lookupSchemaHasChildren,
   resolveLookupSchemaNode,
   type LookupSchemaNode,
@@ -108,7 +110,8 @@ function resolveLookupChildSchema(
   for (const [pattern, child] of Object.entries(schema.patternProperties ?? {})) {
     try {
       if (new RegExp(pattern).test(segment)) {
-        return asSchemaObject(child);
+        const childSchema = asSchemaObject(child);
+        return childSchema ? resolveLookupSchemaNode(childSchema, referenceRoot) : null;
       }
     } catch {
       // Config validation reports malformed plugin schemas; lookup remains available.
@@ -286,6 +289,9 @@ function stripSchemaForLookup(
   node: LookupSchemaNode,
   nestedFormDepth = 0,
   seen = new Set<JsonSchemaObject>(),
+  // Nodes outside references are bounded by the schema itself; referenced copies are not.
+  referencedNodes = createLookupExpansionBudget(MAX_LOOKUP_REFERENCED_NODES),
+  insideReference = false,
 ): JsonSchemaNode {
   if (seen.has(node.identity)) {
     return {};
@@ -295,7 +301,17 @@ function stripSchemaForLookup(
   const next: JsonSchemaNode = {};
   const stripChild = (childSchema: JsonSchemaObject) => {
     const child = resolveLookupSchemaNode(childSchema, referenceRoot);
-    return child ? stripSchemaForLookup(child, nestedFormDepth + 1, visited) : {};
+    if (!child) {
+      return {};
+    }
+    const viaReference = insideReference || child.identity !== childSchema;
+    if (viaReference) {
+      if (referencedNodes.remaining <= 0) {
+        return {};
+      }
+      referencedNodes.remaining -= 1;
+    }
+    return stripSchemaForLookup(child, nestedFormDepth + 1, visited, referencedNodes, viaReference);
   };
 
   for (const [key, value] of Object.entries(schema)) {
@@ -359,7 +375,7 @@ function stripSchemaForLookup(
     next.patternProperties = Object.fromEntries(
       Object.entries(schema.patternProperties).map(([pattern, child]) => [
         pattern,
-        stripSchemaForLookup(child, nestedFormDepth + 1),
+        stripChild(child),
       ]),
     );
   }

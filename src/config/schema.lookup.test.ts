@@ -204,4 +204,98 @@ describe("plugin config schema lookup", () => {
       expect.arrayContaining([expect.objectContaining({ key: "next", hasChildren: true })]),
     );
   });
+
+  it("applies constraints from both a reference and its siblings", () => {
+    const response = schemaResponse({
+      $defs: {
+        token: { type: "string", minLength: 10, maxLength: 64, description: "Shared token" },
+        account: {
+          type: "object",
+          required: ["host"],
+          properties: { host: { type: "string" }, port: { type: "integer", minimum: 1 } },
+        },
+      },
+      properties: {
+        token: { $ref: "#/$defs/token", minLength: 1, maxLength: 32, description: "API token" },
+        account: {
+          $ref: "#/$defs/account",
+          required: ["user"],
+          properties: { user: { type: "string" }, port: { maximum: 65535 } },
+        },
+      },
+    });
+
+    expect(lookupConfigSchema(response, "token")?.schema).toEqual({
+      type: "string",
+      description: "API token",
+      minLength: 10,
+      maxLength: 32,
+    });
+    const account = lookupConfigSchema(response, "account");
+    expect(account?.children.map(({ key, required }) => [key, required])).toEqual([
+      ["host", true],
+      ["port", false],
+      ["user", true],
+    ]);
+    expect(lookupConfigSchema(response, "account.port")?.schema).toEqual({
+      type: "integer",
+      minimum: 1,
+      allOf: [{ maximum: 65535 }],
+    });
+  });
+
+  it("keeps conflicting sibling constraints instead of replacing the referenced ones", () => {
+    const response = schemaResponse({
+      $defs: { mode: { type: "string", enum: ["fast", "safe", "off"], pattern: "^[a-z]+$" } },
+      properties: { mode: { $ref: "#/$defs/mode", enum: ["safe", "off"] } },
+    });
+
+    expect(lookupConfigSchema(response, "mode")?.schema).toEqual({
+      type: "string",
+      enum: ["fast", "safe", "off"],
+      pattern: "^[a-z]+$",
+      allOf: [{ enum: ["safe", "off"] }],
+    });
+  });
+
+  it("bounds the projection of shared references that fan out", () => {
+    const depth = 40;
+    const $defs: Record<string, ConfigJsonSchemaObject> = { level40: { type: "string" } };
+    for (let level = depth - 1; level >= 0; level -= 1) {
+      const next = { $ref: `#/$defs/level${level + 1}` };
+      $defs[`level${level}`] = { type: "array", items: [next, next] };
+    }
+    const response = schemaResponse({ $defs, properties: { tree: { $ref: "#/$defs/level0" } } });
+
+    const started = performance.now();
+    const result = lookupConfigSchema(response, "tree");
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(result?.schema.type).toBe("array");
+    expect(JSON.stringify(result).length).toBeLessThan(100_000);
+    expect(lookupConfigSchema(response, "tree.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.1")?.schema).toEqual(
+      expect.objectContaining({ type: "array" }),
+    );
+  });
+
+  it("resolves references reached through patternProperties", () => {
+    const response = schemaResponse({
+      $defs: { endpoint: { type: "object", properties: { url: { type: "string" } } } },
+      properties: {
+        endpoints: {
+          type: "object",
+          patternProperties: { "^[a-z]+$": { $ref: "#/$defs/endpoint" } },
+        },
+      },
+    });
+
+    expect(lookupConfigSchema(response, "endpoints")?.schema).toEqual({
+      type: "object",
+      patternProperties: {
+        "^[a-z]+$": { type: "object", properties: { url: { type: "string" } } },
+      },
+    });
+    expect(lookupConfigSchema(response, "endpoints.primary.url")?.schema).toEqual({
+      type: "string",
+    });
+  });
 });
