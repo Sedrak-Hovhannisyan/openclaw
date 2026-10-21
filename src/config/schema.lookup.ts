@@ -95,6 +95,8 @@ function resolveLookupChildSchema(
   node: LookupSchemaNode,
   segment: string,
   seen = new Set<JsonSchemaObject>(),
+  // Shared by sibling branches: shared definitions can fan out through unions.
+  budget = createLookupExpansionBudget(),
 ): LookupSchemaNode | null {
   if (isBlockedObjectKey(segment) || seen.has(node.identity)) {
     return null;
@@ -105,13 +107,13 @@ function resolveLookupChildSchema(
   const properties = schema.properties;
   if (properties && Object.hasOwn(properties, segment)) {
     const child = asSchemaObject(properties[segment]);
-    return child ? resolveLookupSchemaNode(child, referenceRoot) : null;
+    return child ? resolveLookupSchemaNode(child, referenceRoot, budget) : null;
   }
   for (const [pattern, child] of Object.entries(schema.patternProperties ?? {})) {
     try {
       if (new RegExp(pattern).test(segment)) {
         const childSchema = asSchemaObject(child);
-        return childSchema ? resolveLookupSchemaNode(childSchema, referenceRoot) : null;
+        return childSchema ? resolveLookupSchemaNode(childSchema, referenceRoot, budget) : null;
       }
     } catch {
       // Config validation reports malformed plugin schemas; lookup remains available.
@@ -121,7 +123,7 @@ function resolveLookupChildSchema(
   const itemIndex = parseConfigPathArrayIndex(segment);
   const items = resolveItemsSchema(schema, itemIndex);
   if ((segment === "*" || itemIndex !== undefined) && items) {
-    return resolveLookupSchemaNode(items, referenceRoot);
+    return resolveLookupSchemaNode(items, referenceRoot, budget);
   }
 
   for (const key of LOOKUP_SCHEMA_COMPOSITION_KEYS) {
@@ -132,9 +134,11 @@ function resolveLookupChildSchema(
     for (const variant of variants) {
       const variantSchema = asSchemaObject(variant);
       const variantNode = variantSchema
-        ? resolveLookupSchemaNode(variantSchema, referenceRoot)
+        ? resolveLookupSchemaNode(variantSchema, referenceRoot, budget)
         : null;
-      const resolved = variantNode ? resolveLookupChildSchema(variantNode, segment, visited) : null;
+      const resolved = variantNode
+        ? resolveLookupChildSchema(variantNode, segment, visited, budget)
+        : null;
       if (resolved) {
         return resolved;
       }
@@ -142,7 +146,7 @@ function resolveLookupChildSchema(
   }
 
   if (schema.additionalProperties && typeof schema.additionalProperties === "object") {
-    return resolveLookupSchemaNode(schema.additionalProperties, referenceRoot);
+    return resolveLookupSchemaNode(schema.additionalProperties, referenceRoot, budget);
   }
 
   return null;
@@ -151,14 +155,15 @@ function resolveLookupChildSchema(
 function resolveLookupSchema(
   response: ConfigSchemaResponse,
   parts: readonly string[],
+  budget = createLookupExpansionBudget(),
 ): LookupSchemaNode | null {
   const root = asSchemaObject(response.schema);
-  let current = root ? resolveLookupSchemaNode(root) : null;
+  let current = root ? resolveLookupSchemaNode(root, null, budget) : null;
   for (const segment of parts) {
     if (!current) {
       break;
     }
-    current = resolveLookupChildSchema(current, segment);
+    current = resolveLookupChildSchema(current, segment, undefined, budget);
   }
   return current;
 }
@@ -169,6 +174,7 @@ function classifyLookupChildSchema(
   node: LookupSchemaNode,
   segment: string,
   seen = new Set<JsonSchemaObject>(),
+  budget = createLookupExpansionBudget(),
 ): ConfigSchemaPathSegmentKind | null {
   if (seen.has(node.identity)) {
     return null;
@@ -189,9 +195,11 @@ function classifyLookupChildSchema(
     for (const variant of variants) {
       const variantSchema = asSchemaObject(variant);
       const variantNode = variantSchema
-        ? resolveLookupSchemaNode(variantSchema, referenceRoot)
+        ? resolveLookupSchemaNode(variantSchema, referenceRoot, budget)
         : null;
-      const kind = variantNode ? classifyLookupChildSchema(variantNode, segment, visited) : null;
+      const kind = variantNode
+        ? classifyLookupChildSchema(variantNode, segment, visited, budget)
+        : null;
       if (kind) {
         return kind;
       }
@@ -281,8 +289,9 @@ export function classifyConfigSchemaPathSegment(
   parentParts: readonly string[],
   segment: string,
 ): ConfigSchemaPathSegmentKind | null {
-  const current = resolveLookupSchema(response, parentParts);
-  return current ? classifyLookupChildSchema(current, segment) : null;
+  const budget = createLookupExpansionBudget();
+  const current = resolveLookupSchema(response, parentParts, budget);
+  return current ? classifyLookupChildSchema(current, segment, undefined, budget) : null;
 }
 
 function stripSchemaForLookup(

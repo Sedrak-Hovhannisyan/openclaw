@@ -277,6 +277,25 @@ describe("plugin config schema lookup", () => {
     );
   });
 
+  it("bounds path resolution through unions of shared references", () => {
+    const depth = 30;
+    const $defs: Record<string, ConfigJsonSchemaObject> = {
+      [`level${depth}`]: { type: "object", properties: { name: { type: "string" } } },
+    };
+    for (let level = depth - 1; level >= 0; level -= 1) {
+      const next = { $ref: `#/$defs/level${level + 1}` };
+      $defs[`level${level}`] = { anyOf: [next, next] };
+    }
+    const response = schemaResponse({ $defs, properties: { tree: { $ref: "#/$defs/level0" } } });
+
+    const started = performance.now();
+    expect(lookupConfigSchema(response, "tree.unknown")).toBeNull();
+    expect(classifyConfigSchemaPathSegment(response, ["tree"], "unknown")).toBeNull();
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(lookupConfigSchema(response, "tree.name")?.schema).toEqual({ type: "string" });
+    expect(classifyConfigSchemaPathSegment(response, ["tree"], "name")).toBe("property");
+  });
+
   it("resolves references reached through patternProperties", () => {
     const response = schemaResponse({
       $defs: { endpoint: { type: "object", properties: { url: { type: "string" } } } },
