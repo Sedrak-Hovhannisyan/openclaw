@@ -10,6 +10,10 @@ import { runDoctorLintChecks } from "./doctor-lint-flow.js";
 import type { HealthFinding } from "./health-checks.js";
 
 const runtime = { log() {}, error() {}, exit() {} };
+const AGENTS_RETENTION =
+  "Depending on the limit, the injected copy can keep text from the start and end of the file and a digest of any headings, list items, and policy lines. Everything else is dropped.";
+const OTHER_RETENTION =
+  "Depending on the limit, the injected copy can keep text from the start and end of the file. Everything else is dropped.";
 
 function expectFinding(findings: readonly HealthFinding[], fields: Partial<HealthFinding>) {
   expect(findings).toContainEqual(
@@ -92,20 +96,32 @@ describe("core/doctor/bootstrap-size", () => {
 
     expectFinding(findings, {
       path: join(root, "AGENTS.md"),
-      message: expect.stringContaining(
-        "keeps the start and end of the file, plus a short digest of its headings, list items, and policy lines.",
-      ),
+      message: `AGENTS.md exceeds bootstrap limits and will be truncated. ${AGENTS_RETENTION}`,
     });
     expectFinding(findings, {
       path: join(root, "SOUL.md"),
-      message: expect.stringContaining(
-        "keeps the start and end of the file. Text in the middle is dropped.",
-      ),
+      message: `SOUL.md exceeds bootstrap limits and will be truncated. ${OTHER_RETENTION}`,
     });
     // The total budget dropped this file entirely, so no part of it is kept.
     expectFinding(findings, {
       path: join(root, "packages", "core", "AGENTS.md"),
       message: "AGENTS.md exceeds bootstrap limits and will be truncated.",
+    });
+  });
+
+  // Neither input keeps every part: plain prose has no digest candidates, and
+  // a 100-char limit leaves no room for the tail after the truncation markers.
+  it.each([
+    { scenario: "plain prose without digest candidates", maxChars: undefined },
+    { scenario: "a limit too small for the tail", maxChars: 100 },
+  ])("does not promise retained parts for $scenario", async ({ maxChars }) => {
+    await workspace({ "AGENTS.md": "Please be concise.\n".repeat(2_000) });
+    const findings = await detect({
+      agents: { defaults: { workspace: tmp, bootstrapMaxChars: maxChars } },
+    });
+
+    expectFinding(findings, {
+      message: `AGENTS.md exceeds bootstrap limits and will be truncated. ${AGENTS_RETENTION}`,
     });
   });
 

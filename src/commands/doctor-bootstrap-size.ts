@@ -42,8 +42,9 @@ function formatCauses(causes: Array<"per-file-limit" | "total-limit">): string {
 }
 
 /**
- * Mirrors bootstrap trimming: AGENTS.md keeps head, policy digest, and tail;
- * other files keep head and tail. Files the total budget dropped keep nothing.
+ * Mirrors bootstrap trimming without guaranteeing any part: excerpt sizes follow
+ * the limit (small limits drop the tail first), and the AGENTS.md policy digest
+ * needs candidate lines that fit. Files the total budget dropped keep nothing.
  */
 export function describeBootstrapTruncationRetention(file: {
   name: string;
@@ -53,8 +54,8 @@ export function describeBootstrapTruncationRetention(file: {
     return undefined;
   }
   return file.name.toLowerCase() === "agents.md"
-    ? "The injected copy keeps the start and end of the file, plus a short digest of its headings, list items, and policy lines. Other text in the middle is dropped."
-    : "The injected copy keeps the start and end of the file. Text in the middle is dropped.";
+    ? "Depending on the limit, the injected copy can keep text from the start and end of the file and a digest of any headings, list items, and policy lines. Everything else is dropped."
+    : "Depending on the limit, the injected copy can keep text from the start and end of the file. Everything else is dropped.";
 }
 
 export async function collectBootstrapFileSize(

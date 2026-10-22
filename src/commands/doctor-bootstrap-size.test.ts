@@ -128,9 +128,9 @@ it("says which part of each truncated file the injected copy keeps", async () =>
   expect(await message()).toContain(
     [
       "- AGENTS.md: 25,000 raw / 20,000 injected (20% truncated; max/file)",
-      "  The injected copy keeps the start and end of the file, plus a short digest of its headings, list items, and policy lines. Other text in the middle is dropped.",
+      "  Depending on the limit, the injected copy can keep text from the start and end of the file and a digest of any headings, list items, and policy lines. Everything else is dropped.",
       "- SOUL.md: 25,000 raw / 20,000 injected (20% truncated; max/file)",
-      "  The injected copy keeps the start and end of the file. Text in the middle is dropped.",
+      "  Depending on the limit, the injected copy can keep text from the start and end of the file. Everything else is dropped.",
       "Total bootstrap injected chars:",
     ].join("\n"),
   );
