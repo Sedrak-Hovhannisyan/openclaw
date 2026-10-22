@@ -9,7 +9,8 @@ export const bootstrapSizeCheck: Omit<DoctorHealthCheck, "kind" | "source"> = {
     if (!ctx.cwd) {
       return [];
     }
-    const { collectBootstrapFileSize } = await import("../commands/doctor-bootstrap-size.js");
+    const { collectBootstrapFileSize, describeBootstrapTruncationRetention } =
+      await import("../commands/doctor-bootstrap-size.js");
     const { isFixedUserCapFile } = await import("../agents/bootstrap-budget.js");
     const { USER_BOOTSTRAP_MAX_CHARS } =
       await import("../agents/embedded-agent-helpers/bootstrap.js");
@@ -33,12 +34,13 @@ export const bootstrapSizeCheck: Omit<DoctorHealthCheck, "kind" | "source"> = {
             " Also reduce total bootstrap size or tune `agents.entries.*.bootstrapTotalMaxChars` for this agent, or `agents.defaults.bootstrapTotalMaxChars` as fallback.";
         }
       }
+      const retention = describeBootstrapTruncationRetention(file);
       findings.push({
         checkId: "core/doctor/bootstrap-size",
         category: "recommended",
         docsUrl: "https://docs.openclaw.ai/concepts/agent-workspace",
         severity: "warning",
-        message: `${file.name} exceeds bootstrap limits and will be truncated.`,
+        message: `${file.name} exceeds bootstrap limits and will be truncated.${retention ? ` ${retention}` : ""}`,
         path: file.path,
         fixHint,
       });

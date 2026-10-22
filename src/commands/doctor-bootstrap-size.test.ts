@@ -118,6 +118,24 @@ it.each([
   }
 });
 
+it("says which part of each truncated file the injected copy keeps", async () => {
+  resolveBootstrapContextForDiagnostics.mockResolvedValue(
+    context(
+      [bootstrapFile("AGENTS.md", 25_000), bootstrapFile("SOUL.md", 25_000)],
+      [20_000, 20_000],
+    ),
+  );
+  expect(await message()).toContain(
+    [
+      "- AGENTS.md: 25,000 raw / 20,000 injected (20% truncated; max/file)",
+      "  The injected copy keeps the start and end of the file, plus a short digest of its headings, list items, and policy lines. Other text in the middle is dropped.",
+      "- SOUL.md: 25,000 raw / 20,000 injected (20% truncated; max/file)",
+      "  The injected copy keeps the start and end of the file. Text in the middle is dropped.",
+      "Total bootstrap injected chars:",
+    ].join("\n"),
+  );
+});
+
 it("labels a secondary agent whose bootstrap files exceed the limit", async () => {
   listAgentIds.mockReturnValue(["main", "secondary"]);
   resolveAgentWorkspaceDir.mockImplementation((_cfg, agentId) => `/tmp/${agentId}`);

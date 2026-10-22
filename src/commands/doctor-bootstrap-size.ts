@@ -41,6 +41,22 @@ function formatCauses(causes: Array<"per-file-limit" | "total-limit">): string {
   return causes.map((cause) => (cause === "per-file-limit" ? "max/file" : "max/total")).join(", ");
 }
 
+/**
+ * Mirrors bootstrap trimming: AGENTS.md keeps head, policy digest, and tail;
+ * other files keep head and tail. Files the total budget dropped keep nothing.
+ */
+export function describeBootstrapTruncationRetention(file: {
+  name: string;
+  injectedChars: number;
+}): string | undefined {
+  if (file.injectedChars <= 0) {
+    return undefined;
+  }
+  return file.name.toLowerCase() === "agents.md"
+    ? "The injected copy keeps the start and end of the file, plus a short digest of its headings, list items, and policy lines. Other text in the middle is dropped."
+    : "The injected copy keeps the start and end of the file. Text in the middle is dropped.";
+}
+
 export async function collectBootstrapFileSize(
   cfg: OpenClawConfig,
   workspaceDir: string,
@@ -92,6 +108,10 @@ export async function noteBootstrapFileSize(cfg: OpenClawConfig) {
         lines.push(
           `- ${file.name}: ${formatInt(file.rawChars)} raw / ${formatInt(file.injectedChars)} injected (${formatPercent(truncatedChars, file.rawChars)} truncated; ${formatCauses(file.causes)})`,
         );
+        const retention = describeBootstrapTruncationRetention(file);
+        if (retention) {
+          lines.push(`  ${retention}`);
+        }
       }
     } else {
       lines.push("Workspace bootstrap files are near configured limits:");

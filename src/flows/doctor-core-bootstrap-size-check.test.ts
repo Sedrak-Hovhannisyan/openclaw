@@ -70,6 +70,45 @@ describe("core/doctor/bootstrap-size", () => {
     });
   });
 
+  it("says which part of each truncated file the injected copy keeps", async () => {
+    const root = await workspace({
+      "AGENTS.md": "# Rules\n- Never push to main.\n".repeat(1_000),
+      "SOUL.md": "s".repeat(15_000),
+      "packages/core/AGENTS.md": "b".repeat(500),
+    });
+
+    const findings = await detect({
+      agents: {
+        defaults: { workspace: tmp, bootstrapMaxChars: 10_000, bootstrapTotalMaxChars: 18_000 },
+      },
+      hooks: {
+        internal: {
+          entries: {
+            "bootstrap-extra-files": { enabled: true, paths: ["packages/*/AGENTS.md"] },
+          },
+        },
+      },
+    });
+
+    expectFinding(findings, {
+      path: join(root, "AGENTS.md"),
+      message: expect.stringContaining(
+        "keeps the start and end of the file, plus a short digest of its headings, list items, and policy lines.",
+      ),
+    });
+    expectFinding(findings, {
+      path: join(root, "SOUL.md"),
+      message: expect.stringContaining(
+        "keeps the start and end of the file. Text in the middle is dropped.",
+      ),
+    });
+    // The total budget dropped this file entirely, so no part of it is kept.
+    expectFinding(findings, {
+      path: join(root, "packages", "core", "AGENTS.md"),
+      message: "AGENTS.md exceeds bootstrap limits and will be truncated.",
+    });
+  });
+
   it("honors the per-agent bootstrapMaxChars override in health findings", async () => {
     await workspace({ "AGENTS.md": "a".repeat(15_000) });
     const findings = await detect({
