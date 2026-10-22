@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { setTimeout as delay } from "node:timers/promises";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { encodeMemoryEmbedding } from "openclaw/plugin-sdk/memory-core-host-engine-storage";
 import { resolveRuntimeWorkerUrl, WorkerTaskPool } from "openclaw/plugin-sdk/process-runtime";
@@ -572,7 +573,7 @@ describe("memory index", () => {
     }
   });
 
-  it("keeps transient CLI search off the serving manager write path", async () => {
+  it("publishes transient CLI search maintenance before close, off the serving write path", async () => {
     const cfg = keywordConfig();
     const initialManager = await getFreshManager(cfg, "cli");
     await initialManager.sync({ reason: "test", force: true });
@@ -598,17 +599,35 @@ describe("memory index", () => {
       expectFixtureHit(await search);
       expect(servingSync).not.toHaveBeenCalled();
       closePromise = manager.close();
-      let closeSettled = false;
-      void closePromise.then(() => {
-        closeSettled = true;
-      });
-      await vi.waitFor(() => expect(closeSettled).toBe(true));
+      const closeSettled = vi.fn();
+      void closePromise.then(closeSettled, closeSettled);
+      // Teardown must not release the connection the paused maintenance writes through.
+      await Promise.race([closePromise, delay(250)]);
+      expect(closeSettled).not.toHaveBeenCalled();
       expect(maintenance.state.closed).toBe(false);
+      maintenance.release();
+      await closePromise;
+      expect(maintenance.state.closed).toBe(true);
     } finally {
       maintenance.release();
       await closePromise;
       maintenance.spy.mockRestore();
       await manager.close?.();
+    }
+
+    // A standalone CLI process exits after close; the refresh it started is published.
+    const next = await getFreshManager(cfg, "cli");
+    try {
+      expect(
+        await next.search("transient", {
+          maxResults: 5,
+          minScore: 0,
+          sessionKey: "agent:main:cli:memory-search",
+        }),
+      ).toEqual(matchingHit({ path: "memory/cli-refresh.md" }));
+      expect(next.status().lastSyncError).toBeUndefined();
+    } finally {
+      await next.close?.();
     }
   });
 
