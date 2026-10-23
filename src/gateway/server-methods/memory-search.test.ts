@@ -251,8 +251,8 @@ describe("memory.search gateway method", () => {
         expect.objectContaining({ results: [] }),
         undefined,
       );
-      const closeStarted = createDeferredCore<void>();
-      const releaseClose = createDeferredCore<void>();
+      const closeStarted = createDeferredCore();
+      const releaseClose = createDeferredCore();
       manager.close.mockImplementationOnce(async () => {
         closeStarted.resolve();
         await releaseClose.promise;
