@@ -590,7 +590,7 @@ describe("memory index", () => {
     const idleEntered = createDeferred<void>();
     const awaitIdle = serving(manager).awaitManagerIdle.bind(manager);
     const idleSettled = vi.fn();
-    using idle = vi.spyOn(serving(manager), "awaitManagerIdle").mockImplementation(() => {
+    using _idle = vi.spyOn(serving(manager), "awaitManagerIdle").mockImplementation(() => {
       const pending = awaitIdle();
       void pending.then(idleSettled, idleSettled);
       idleEntered.resolve();
