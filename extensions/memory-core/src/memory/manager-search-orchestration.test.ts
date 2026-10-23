@@ -1,7 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { setTimeout as delay } from "node:timers/promises";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { encodeMemoryEmbedding } from "openclaw/plugin-sdk/memory-core-host-engine-storage";
 import { resolveRuntimeWorkerUrl, WorkerTaskPool } from "openclaw/plugin-sdk/process-runtime";
@@ -588,6 +587,15 @@ describe("memory index", () => {
     const servingSync = vi.spyOn(servingFields, "syncMemoryFiles");
     let closePromise: Promise<void> | undefined;
     const maintenance = pauseMaintenance();
+    const idleEntered = createDeferred<void>();
+    const awaitIdle = serving(manager).awaitManagerIdle.bind(manager);
+    const idleSettled = vi.fn();
+    using idle = vi.spyOn(serving(manager), "awaitManagerIdle").mockImplementation(() => {
+      const pending = awaitIdle();
+      void pending.then(idleSettled, idleSettled);
+      idleEntered.resolve();
+      return pending;
+    });
 
     try {
       const search = manager.search("zebra", {
@@ -599,11 +607,9 @@ describe("memory index", () => {
       expectFixtureHit(await search);
       expect(servingSync).not.toHaveBeenCalled();
       closePromise = manager.close();
-      const closeSettled = vi.fn();
-      void closePromise.then(closeSettled, closeSettled);
       // Teardown must not release the connection the paused maintenance writes through.
-      await Promise.race([closePromise, delay(250)]);
-      expect(closeSettled).not.toHaveBeenCalled();
+      await idleEntered.promise;
+      expect(idleSettled).not.toHaveBeenCalled();
       expect(maintenance.state.closed).toBe(false);
       maintenance.release();
       await closePromise;
